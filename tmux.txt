@@ -1,0 +1,36 @@
+注意：跑之前记得在/data4_server5/yuanhao/DAOcc_xy/configs/default.yaml第18行换成要resume_from的权重的路径
+还有/data4/xieying/concat0930/configs/nuscenes/occ3d/daocc_COTR_occ3d_w_mask.yaml的checkpoint: /data4/xieying/concat0930/ckpt/resnet50-0676ba61.pth
+#0930训练concat，用2张卡
+cd /data4/xieying/concat0930
+tmux new -s DAOcc_concat1015
+conda activate daocc
+export PYTHONPATH=/data4/xieying/concat0930:$PYTHONPATH
+
+export TORCH_EXTENSIONS_DIR=/data4/xieying/concat0930/torch_extensions_cache
+mkdir -p $TORCH_EXTENSIONS_DIR （已经存在就不需要再创建，第一次需要创建）
+
+CUDA_VISIBLE_DEVICES=2,3 torchrun --standalone --nproc_per_node=2 tools/train.py /data4/xieying/concat0930/configs/nuscenes/occ3d/daocc_COTR_occ3d_w_mask.yaml --run-dir /data4/xieying/concat0930/save_log --dist cudnn_benchmark=True > /data4/xieying/concat0930/save_log/DAOcc_concat1015_epoch11_data4.log 2>&1
+
+#---------yh6--------
+注意：跑之前记得在/data4_server5/yuanhao/DAOcc_xy/configs/default.yaml第18行换成要resume_from的权重的路径
+还有/data4/xieying/concat0930/configs/nuscenes/occ3d/daocc_COTR_occ3d_w_mask.yaml的checkpoint: /data4/xieying/concat0930/ckpt/resnet50-0676ba61.pth
+#0930训练concat，用2张卡
+cd /data4_server5/xieying/concat0930
+tmux new -s DAOcc_concat1015
+conda activate daocc
+export PYTHONPATH=/data4_server5/xieying/concat0930:$PYTHONPATH
+
+export TORCH_EXTENSIONS_DIR=/data4_server5/xieying/concat0930/torch_extensions_cache
+mkdir -p $TORCH_EXTENSIONS_DIR （已经存在就不需要再创建，第一次需要创建）
+
+CUDA_VISIBLE_DEVICES=2,3 torchrun --standalone --nproc_per_node=2 tools/train.py /data4_server5/xieying/concat0930/configs/nuscenes/occ3d/daocc_COTR_occ3d_w_mask.yaml --run-dir /data4_server5/xieying/concat0930/save_log --dist cudnn_benchmark=True > /data4_server5/xieying/concat0930/save_log/DAOcc_concat1016_epoch11_yh6.log 2>&1
+
+
+#------------------------
+#单独测试,yh6
+cd /data4_server5/xieying/concat0930
+tmux new -s test1003
+conda activate daocc
+export PYTHONPATH=/data4_server5/xieying/concat0930:$PYTHONPATH
+export TORCH_EXTENSIONS_DIR=/data4_server5/xieying/concat0930/torch_extensions_cache
+CUDA_VISIBLE_DEVICES=0 python tools/test.py /data4_server5/xieying/concat0930/configs/nuscenes/occ3d/daocc_COTR_occ3d_w_mask.yaml /data4_server5/xieying/concat0930/save_log/epoch_3.pth --show-dir /data4_server5/xieying/concat0930/test_log --eval mIOU > /data4_server5/xieying/concat0930/test_log/1003test.log 2>&1
