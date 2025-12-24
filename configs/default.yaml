@@ -1,0 +1,35 @@
+seed: 0
+deterministic: false
+max_keep_ckpt: 20  #原先是6
+
+checkpoint_config:
+  interval: 1
+  max_keep_ckpts: ${max_keep_ckpt}
+
+log_config:
+  interval: 1  #改日志的步长
+  hooks:
+    -
+      type: TextLoggerHook
+    -
+      type: TensorboardLoggerHook
+
+load_from: null
+resume_from: /data4_server5/xieying/concat0930/save_log/latest.pth
+
+cudnn_benchmark: false
+# fp16:    #0814谢颖修改，注释掉
+#   loss_scale: 
+#     growth_interval: 2000
+
+max_epochs: 20
+runner:
+  type: CustomEpochBasedRunner
+  max_epochs: ${max_epochs}
+
+custom_hooks:
+  type: MEGVIIEMAHook
+  init_updates: 10560
+  priority: NORMAL
+  max_keep_ckpt: ${max_keep_ckpt}
+

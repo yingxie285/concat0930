@@ -1,0 +1,340 @@
+voxel_size: [0.075, 0.075, 0.2]  # DAOcc原先的体素大小 (x, y, z)  对应（1440,1440,40）
+point_cloud_range: [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
+
+numC_Trans : 32
+_dim_ : 256
+_pos_dim_ : [96, 96, 64]
+_ffn_dim_ : 512
+
+group_split : [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2], # front, back, empty
+               [0, 0, 1, 2, 0, 3, 4, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 6], # other, front(fine_less), empty
+               [0, 1, 0, 0, 2, 0, 0, 3, 4, 0, 5, 0, 0, 0, 0, 0, 0, 6], # other, front(fine_more), empty
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 0, 0, 4], # other, back(fine_less), empty
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 3, 4]] # other, back(fine_more), empty
+
+grid_config:
+  'x': [-54, 54, 0.6] #180
+  'y': [-54, 54, 0.6]  #180
+  'z': [-5, 3, 0.5]  #共 16 层
+  'depth': [1.0, 45.0, 0.5]  #88 个深度区间
+  #0814COTR改成和DAOcc一样的范围-54到54,-5到3，DAocc的多模态融合camera体素个数比lidar的更少，节省显存。因为不是在3D融合，所以单位体素大小可以不一样。
+
+occformer_grid_config:
+  'x': [-54, 54, 2.4] # 原COTR是扩大了4倍
+  'y': [-54, 54, 2.4]
+  'z': [-5, 3, 0.5]
+  #0814COTR改成和DAOcc一样的范围-54到54,-5到3，DAocc的多模态融合camera体素个数比lidar的更少，节省显存。因为不是在3D融合，所以单位体素大小可以不一样。
+
+data_config:
+  'cams': ['CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_LEFT','CAM_BACK', 'CAM_BACK_RIGHT']
+  'Ncams': 6
+  'input_size': [256, 704]
+  'src_size': [900, 1600]
+
+    # Augmentation
+  'resize': [-0.06, 0.11]
+  'rot': [-5.4, 5.4]
+  'flip': True
+  'crop_h': [0.0, 0.0]
+  'resize_test': 0.00
+
+
+multi_adj_frame_id_cfg : [1, 1+1, 1]
+
+augment3d : 
+  'scale': [1.0, 1.0]
+  'rotate': [0.0, 0.0]
+  'translate': 0.0
+
+
+
+model:
+  type: BEVFusion
+  encoders:
+    lidar:
+      voxelize:
+        max_num_points: 10
+        point_cloud_range: ${point_cloud_range}
+        voxel_size: ${voxel_size}
+        max_voxels: [ 120000, 160000 ]
+      backbone:
+        type: SparseEncoder
+        in_channels: 5
+        sparse_shape: [ 1440, 1440, 41 ]  # lidar的原有的体素网格尺寸 (X, Y, Z)[ 1440, 1440, 41 ]
+        output_channels: 128  # 输出通道数
+        order:
+          - conv
+          - norm
+          - act
+        encoder_channels:
+          - [ 16, 16, 32 ]
+          - [ 32, 32, 64 ]
+          - [ 64, 64, 128 ]
+          - [ 128, 128 ]
+        encoder_paddings:
+          - [ 0, 0, 1 ]
+          - [ 0, 0, 1 ]
+          - [ 0, 0, [ 1, 1, 0 ] ]
+          - [ 0, 0 ]
+        block_type: basicblock
+
+    #----------------COTR的图像链路------------------
+    camera:
+      detector:
+        type: COTR_Group  #mmdet3d/models/detectors/cotr.py
+        group_split: ${group_split}
+        align_after_view_transfromation: False
+        num_adj: 1
+        img_backbone:
+          type: ResNet
+          depth: 50
+          out_indices: [1, 2, 3]
+          # with_cp: true
+          init_cfg:
+            type: Pretrained
+            checkpoint: /data4_server5/xieying/concat0930/ckpt/resnet50-0676ba61.pth
+        img_neck:
+          type: CustomFPN_COTR
+          in_channels: [1024, 2048]
+          out_channels: 256
+          num_outs: 1
+          start_level: 0
+          out_ids: [0]
+        # img_view_transformer:
+        #   type: LSSViewTransformerBEVStereo
+        #   grid_config: ${grid_config}
+        #   input_size: [256,704]
+        #   in_channels: 256
+        #   out_channels: 32
+        #   sid: false
+        #   collapse_z: false
+        #   loss_depth_weight: 0.05
+        #   depthnet_cfg:
+        #     use_dcn: false
+        #     aspp_mid_channels: 96
+        #     stereo: true
+        #     bias: 5.0
+        #   downsample: 16
+        img_view_transformer:
+          type: ModifiedLSSViewTransformerBEVStereo  # 使用新模块
+          grid_config: ${grid_config}  # 假设 grid_config 在其他地方定义
+          input_size: [256, 704]       # 输入图像尺寸
+          in_channels: 256             # 输入特征通道数
+          out_channels: 32             # 输出特征通道数
+          sid: false                   # 不使用 SID 深度分布
+          collapse_z: false            # 保留 3D BEV 特征
+          loss_depth_weight: 0.05      # 深度损失权重
+          depthnet_cfg:
+            use_dcn: false             # 不使用可变形卷积
+            aspp_mid_channels: 96      # ASPP 中间通道数
+            stereo: true               # 启用立体视觉
+            bias: 5.0                  # 立体视觉偏置
+          downsample: 16               # 输入到特征图的下采样率
+          top_type: lidar              # 坐标系：lidar 或 ego
+          down_sample: true            # 启用下采样
+          down_sample_scale: 2         # 下采样倍率
+          down_sample_channels: [320, 160, 80, 40]  # 下采样网络通道数
+        img_bev_encoder_backbone:
+          type: CustomResNet3D_COTR
+          numC_input: 32         #0809 原本的COTR有时序是64，现在改成单帧模式是32
+          num_layer: [1, 2, 4]
+          with_cp: false
+          num_channels: [32, 64, 128]
+          stride: [1, 2, 2]
+          backbone_output_ids: [0, 1, 2]
+        img_bev_encoder_neck:
+          type: LSSFPN3D_COTR
+          in_channels: 224
+          out_channels: 32
+          reverse: true
+          size: [16, 45, 45]   #0814原本COTR是[16, 50, 50]，改成45x45，因为180/2/2=45
+        pts_bbox_head:   #原本是注册成HEADS，但会报损失的错误。因此，注册成NECKS
+          type: COTRHead  #mmdet3d/models/dense_heads/cotr_head.py  名字虽然叫COTRHead，但是这是图像链路提取图像特征的NECK，最终的预测头在后面的DAOcc的Head
+          in_channels: 32
+          embed_dims: 256
+          num_query: 100
+          group_detr: 6
+          group_classes: [17, 2, 6, 6, 4, 4]
+          num_classes: 17
+          transformer:
+            type: TransformerMSOcc  #mmdet3d/models/model_utils/transformer_msocc.py
+            embed_dims: 256
+            num_feature_levels: 1
+            encoder:
+                type: OccEncoder    #mmdet3d/models/model_utils/occencoder.py
+                num_layers: 1
+                grid_config: ${occformer_grid_config}
+                data_config: ${data_config}
+                pc_range: ${point_cloud_range}
+                return_intermediate: False
+                fix_bug: True
+                transformerlayers:
+                    type: OccFormerLayer    #mmdet3d/models/model_utils/occencoder.py
+                    attn_cfgs:
+                      - type: MultiScaleDeformableAttention3D  # 论文中的Voxel Self-Attention
+                        embed_dims: 256
+                        num_levels: 1
+                        num_points: 4
+                      - type: SpatialCrossAttention
+                        pc_range: ${point_cloud_range}
+                        deformable_attention:
+                          type: MSDeformableAttention3D  # 内部使用 MSDeformableAttention3D
+                          embed_dims: 256
+                          num_points: 8
+                          num_levels: 1
+                        embed_dims: 256
+                    ffn_embed_dims: 256
+                    feedforward_channels: 512
+                    ffn_dropout: 0.1
+                    operation_order:
+                      - self_attn
+                      - norm
+                      - cross_attn
+                      - norm
+                      - ffn
+                      - norm
+          positional_encoding:
+            type : CustomLearnedPositionalEncoding3D
+            num_feats: ${_pos_dim_}
+            row_num_embed: 180
+            col_num_embed: 180
+            tub_num_embed: 16
+    #-----------------------------------------------------------------------------
+
+  fuser:
+    type: ConvFuser
+    in_channels: [4096, 256]   # COTR图像链路是4096，LiDAR:256（原有多模态DAOcc的是Camera:1280, LiDAR:256）
+    out_channels: 512          # 融合后输出通道
+  decoder:
+    backbone:
+      type: CustomResNet   # BEV特征解码器
+      stride: [1, 1, 2]
+      numC_input : 512
+      num_channels: [128, 256, 512]
+    neck:
+      type: FPN_LSS   # BEV特征解码器
+      in_channels: 640
+      out_channels: 512
+      scale_factor: 2
+      extra_upsample: null
+  heads:
+    map: null
+    object:
+      type: CenterHead    # 3D目标检测头
+      in_channels: 512
+      train_cfg:
+        point_cloud_range: ${point_cloud_range}
+        grid_size: [ 1440, 1440, 41 ]
+        voxel_size: ${voxel_size}
+        out_size_factor: 8
+        dense_reg: 1
+        gaussian_overlap: 0.1
+        max_objs: 500
+        min_radius: 2
+        code_weights: [ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2 ]
+      test_cfg:
+        post_center_limit_range: [ -61.2, -61.2, -10.0, 61.2, 61.2, 10.0 ]
+        max_per_img: 500
+        max_pool_nms: false
+        min_radius: [ 4, 12, 10, 1, 0.85, 0.175 ]
+        score_threshold: 0.1
+        out_size_factor: 8
+        voxel_size: ${voxel_size[:2]}
+        nms_type:
+          - circle
+          - rotate
+          - rotate
+          - circle
+          - rotate
+          - rotate
+        nms_scale:
+          - [ 1.0 ]
+          - [ 1.0, 1.0 ]
+          - [ 1.0, 1.0 ]
+          - [ 1.0 ]
+          - [ 1.0, 1.0 ]
+          - [ 2.5, 4.0 ]
+        pre_max_size: 1000
+        post_max_size: 83
+        nms_thr: 0.2
+      tasks:
+        - [ "car" ]
+        - [ "truck", "construction_vehicle" ]
+        - [ "bus", "trailer" ]
+        - [ "barrier" ]
+        - [ "motorcycle", "bicycle" ]
+        - [ "pedestrian", "traffic_cone" ]
+      common_heads:
+        reg: [ 2, 2 ]
+        height: [ 1, 2 ]
+        dim: [ 3, 2 ]
+        rot: [ 2, 2 ]
+        vel: [ 2, 2 ]
+      share_conv_channel: 64
+      bbox_coder:
+        type: CenterPointBBoxCoder
+        pc_range: ${point_cloud_range}
+        post_center_range: [ -61.2, -61.2, -10.0, 61.2, 61.2, 10.0 ]
+        max_num: 500
+        score_threshold: 0.1
+        out_size_factor: 8
+        voxel_size: ${voxel_size[:2]}
+        code_size: 9
+      separate_head:
+        type: SeparateHead
+        init_bias: -2.19
+        final_kernel: 3
+      loss_cls:
+        type: GaussianFocalLoss
+        reduction: mean
+      loss_bbox:
+        type: L1Loss
+        reduction: mean
+        loss_weight: 0.25
+      norm_bbox: true
+    occ:
+      type: BEVOCCHead2D   # 占据预测头
+      in_dim: 128
+      out_dim: 128
+      Dz: 16
+      use_mask: true
+      num_classes: 18
+      use_predicter: true
+      class_balance: false
+      loss_occ:
+        type: CrossEntropyLoss
+        use_sigmoid: false
+        ignore_index: 255
+        loss_weight: 1.0
+      coordinate_transform:
+        type: CrossCoordinateSample
+        point_range: [-40., 40., -40., 40., 0., 0.]
+        point_num: [200, 200, 1]
+        lidar_point_range: [-54.0, 54.0, -54.0, 54.0]
+        in_dim: 512
+        out_dim: 128
+  loss_scale:
+    object: 0.01
+    occ: 1.0
+
+optimizer:
+  type: AdamW
+  lr: 1.0e-4   #原先是2.0e-4,过拟合了。双卡现在改成1.0e-4
+  weight_decay: 0.01
+
+optimizer_config:
+  grad_clip:
+    max_norm: 35
+    norm_type: 2
+
+lr_config:
+  policy: CosineAnnealing
+  warmup: linear
+  warmup_iters: 500   # 原先是500
+  warmup_ratio: 0.33333333    #原先是0.33333333
+  min_lr_ratio: 1.0e-3
+
+max_epochs: 20  #原来是6
+
+evaluation:
+  interval: 1  #原来是2
